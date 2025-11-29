@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Douyin to ALAC (Speed Demon V2.1)</title>
+    <title>Douyin to ALAC (Speed Demon V2.2)</title>
     
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -21,8 +21,13 @@
     <style>
         @keyframes pulse-fast { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         .animate-pulse-fast { animation: pulse-fast 1s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
-        .progress-bar { transition: width 0.2s linear; }
+        .glass { background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.1); }
+        .progress-bar { transition: width 0.3s ease-out; }
+        
+        /* Custom log scrollbar */
+        .log-area::-webkit-scrollbar { width: 4px; }
+        .log-area::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        .log-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
     </style>
 </head>
 <body class="bg-black text-slate-100 font-sans">
@@ -37,13 +42,14 @@
             zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
             download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
             loader: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
-            check: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>'
+            check: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+            terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>'
         };
 
         const DouyinConverter = () => {
             const [url, setUrl] = useState('');
             const [status, setStatus] = useState('idle');
-            const [msg, setMsg] = useState('');
+            const [logs, setLogs] = useState([]); // Array of log messages
             const [progress, setProgress] = useState(0); // 0-100
             const [videoInfo, setVideoInfo] = useState(null);
             const [downloadLink, setDownloadLink] = useState(null);
@@ -51,6 +57,11 @@
             const ffmpegRef = useRef(null);
             const ffmpegReady = useRef(false);
             const maxDownloadProgress = useRef(0);
+
+            // Add Log Helper
+            const addLog = (text, type = 'info') => {
+                setLogs(prev => [...prev, { text, type, time: new Date().toLocaleTimeString().split(' ')[0] }]);
+            };
 
             // 1. FFmpeg Preload
             useEffect(() => {
@@ -73,27 +84,28 @@
                 setTimeout(initFFmpeg, 500);
             }, []);
 
-            // Helper: Robust JSON Fetcher (Proxy + Timeout)
-            const fetchJsonSafe = async (targetUrl) => {
-                // Try direct first, then proxies
+            // Helper: Robust JSON Fetcher
+            const fetchJsonSafe = async (targetUrl, sourceName) => {
                 const strategies = [
-                    u => u, // Direct
-                    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-                    u => `https://corsproxy.io/?${encodeURIComponent(u)}`
+                    { name: 'Direct', fn: u => u },
+                    { name: 'Proxy AO', fn: u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}` },
+                    { name: 'Proxy IO', fn: u => `https://corsproxy.io/?${encodeURIComponent(u)}` }
                 ];
 
                 for (const strat of strategies) {
                     try {
                         const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+                        const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout
                         
-                        const res = await fetch(strat(targetUrl), { signal: controller.signal });
+                        const res = await fetch(strat.fn(targetUrl), { signal: controller.signal });
                         clearTimeout(timeoutId);
                         
                         if (res.ok) return await res.json();
-                    } catch (e) { continue; }
+                    } catch (e) { 
+                        // Silent fail for retry
+                    }
                 }
-                throw new Error('Connect Fail');
+                throw new Error(`${sourceName} 無回應`);
             };
 
             // 2. Download with Progress Stream
@@ -102,15 +114,17 @@
                 maxDownloadProgress.current = 0;
 
                 const proxies = [
-                    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-                    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-                    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
+                    { name: 'CodeTabs', fn: u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
+                    { name: 'CorsProxy', fn: u => `https://corsproxy.io/?${encodeURIComponent(u)}` },
+                    { name: 'AllOrigins', fn: u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}` }
                 ];
 
-                const requests = proxies.map(proxyFn => 
+                addLog(`啟動 ${proxies.length} 條下載線路競速...`, 'info');
+
+                const requests = proxies.map(proxy => 
                     new Promise(async (resolve, reject) => {
                         try {
-                            const res = await fetch(proxyFn(secureUrl));
+                            const res = await fetch(proxy.fn(secureUrl));
                             if (!res.ok) throw new Error('Net Error');
                             
                             const contentLength = res.headers.get('content-length');
@@ -131,10 +145,8 @@
                                     const dlPercent = (loaded / total) * 100;
                                     if (dlPercent > maxDownloadProgress.current) {
                                         maxDownloadProgress.current = dlPercent;
-                                        // Map download 0-100 to UI 30-80
                                         const uiProgress = 30 + (dlPercent * 0.5); 
                                         setProgress(uiProgress);
-                                        setMsg(`競速下載中... ${Math.round(dlPercent)}%`);
                                     }
                                 }
                             }
@@ -145,9 +157,13 @@
                                 buffer.set(chunk, position);
                                 position += chunk.length;
                             }
+                            addLog(`線路 [${proxy.name}] 下載成功!`, 'success');
                             resolve(buffer.buffer);
 
-                        } catch (e) { reject(e); }
+                        } catch (e) { 
+                            // addLog(`線路 [${proxy.name}] 失敗`, 'error'); // Too noisy
+                            reject(e); 
+                        }
                     })
                 );
 
@@ -155,48 +171,80 @@
                     const winnerBuffer = await Promise.any(requests);
                     return winnerBuffer;
                 } catch (err) {
-                    throw new Error("所有線路下載失敗");
+                    throw new Error("所有下載線路皆失敗");
                 }
             };
 
             const process = async () => {
                 const linkMatch = url.match(/(https?:\/\/[^\s]+)/);
-                if (!linkMatch) return setMsg('無效連結');
+                if (!linkMatch) {
+                    setLogs([{text: '錯誤: 無效的連結格式', type: 'error'}]);
+                    return;
+                }
                 const cleanUrl = linkMatch[0];
 
                 setStatus('working');
                 setProgress(5);
+                setLogs([]); // Clear logs
                 setDownloadLink(null);
+                setVideoInfo(null);
+
+                addLog('正在初始化解析引擎...', 'info');
 
                 try {
-                    // Step A: API Parsing (Multi-source Race)
-                    setMsg('解析影片資訊 (智慧線路)...');
-                    
+                    // Fake progress ticker for parsing phase
+                    const parseTicker = setInterval(() => {
+                        setProgress(prev => (prev < 25 ? prev + 1 : prev));
+                    }, 200);
+
+                    // Step A: API Parsing (Multi-source Race with Logs)
                     const providers = [
-                        // Source 1: Peark
-                        async () => {
-                            const d = await fetchJsonSafe(`https://api.pearktrue.cn/api/video/douyin/?url=${encodeURIComponent(cleanUrl)}`);
-                            if(d.code !== 200) throw new Error('Peark Fail');
-                            return { url: d.data.url, title: d.data.title, cover: d.data.cover, author: d.data.author };
+                        { 
+                            name: '線路 A (Peark)', 
+                            fn: async () => {
+                                const d = await fetchJsonSafe(`https://api.pearktrue.cn/api/video/douyin/?url=${encodeURIComponent(cleanUrl)}`, 'Peark');
+                                if(d.code !== 200) throw new Error('Status Error');
+                                return { url: d.data.url, title: d.data.title, cover: d.data.cover, author: d.data.author };
+                            }
                         },
-                        // Source 2: Kuaishou
-                        async () => {
-                            const d = await fetchJsonSafe(`https://api.kuaishouapi.com/douyin/index?url=${encodeURIComponent(cleanUrl)}`);
-                            if(d.code !== 200) throw new Error('Kuaishou Fail');
-                            return { url: d.data.url||d.data.play, title: d.data.desc, cover: d.data.cover, author: d.data.author };
+                        { 
+                            name: '線路 B (Kuaishou)', 
+                            fn: async () => {
+                                const d = await fetchJsonSafe(`https://api.kuaishouapi.com/douyin/index?url=${encodeURIComponent(cleanUrl)}`, 'Kuaishou');
+                                if(d.code !== 200) throw new Error('Status Error');
+                                return { url: d.data.url||d.data.play, title: d.data.desc, cover: d.data.cover, author: d.data.author };
+                            }
                         },
-                        // Source 3: TenAPI
-                        async () => {
-                            const d = await fetchJsonSafe(`https://tenapi.cn/v2/video?url=${encodeURIComponent(cleanUrl)}`);
-                            if(d.code !== 200) throw new Error('TenAPI Fail');
-                            return { url: d.data.url, title: d.data.title, cover: d.data.cover, author: d.data.author };
+                        { 
+                            name: '線路 C (TenAPI)', 
+                            fn: async () => {
+                                const d = await fetchJsonSafe(`https://tenapi.cn/v2/video?url=${encodeURIComponent(cleanUrl)}`, 'TenAPI');
+                                if(d.code !== 200) throw new Error('Status Error');
+                                return { url: d.data.url, title: d.data.title, cover: d.data.cover, author: d.data.author };
+                            }
                         }
                     ];
 
-                    const videoData = await Promise.any(providers.map(p => p()));
+                    // Wrap promises to log status
+                    const racePromises = providers.map(p => 
+                        p.fn()
+                            .then(res => {
+                                addLog(`${p.name} 解析成功`, 'success');
+                                return res;
+                            })
+                            .catch(err => {
+                                addLog(`${p.name} 失敗: ${err.message}`, 'error');
+                                throw err;
+                            })
+                    );
+
+                    const videoData = await Promise.any(racePromises);
+                    clearInterval(parseTicker);
+                    
                     const playUrl = videoData.url;
                     if (!playUrl) throw new Error('解析失敗: 無法取得影片連結');
 
+                    addLog(`獲取影片: ${videoData.title.substring(0, 15)}...`, 'info');
                     setVideoInfo({
                         title: videoData.title || 'Unknown Title',
                         cover: videoData.cover,
@@ -209,8 +257,8 @@
                     const buffer = await downloadWithRace(playUrl);
 
                     // Step C: Convert
-                    setProgress(80);
-                    setMsg('啟動轉碼引擎 (FFmpeg)...');
+                    setProgress(85);
+                    addLog('啟動 FFmpeg 轉碼 (MP4 -> ALAC)...', 'info');
                     
                     if (!ffmpegReady.current) {
                         if (!ffmpegRef.current) {
@@ -223,7 +271,6 @@
                     const ffmpeg = ffmpegRef.current;
                     ffmpeg.FS('writeFile', 'in.mp4', new Uint8Array(buffer));
                     
-                    setMsg('正在轉為 Apple Lossless...');
                     await ffmpeg.run('-i', 'in.mp4', '-vn', '-c:a', 'alac', 'out.m4a');
 
                     const data = ffmpeg.FS('readFile', 'out.m4a');
@@ -232,7 +279,7 @@
                     
                     setProgress(100);
                     setStatus('done');
-                    setMsg('完成！');
+                    addLog('任務完成！', 'success');
 
                     try {
                         ffmpeg.FS('unlink', 'in.mp4');
@@ -242,7 +289,7 @@
                 } catch (e) {
                     console.error(e);
                     setStatus('error');
-                    setMsg('失敗: ' + (e.message || '請確認連結有效或稍後再試'));
+                    addLog(`致命錯誤: ${e.message}`, 'error');
                 }
             };
 
@@ -259,7 +306,7 @@
                             <div className="w-12 h-12 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-xl mx-auto flex items-center justify-center shadow-lg shadow-indigo-500/30 mb-3">
                                 <Icon d={icons.zap} className="text-white" />
                             </div>
-                            <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">極速轉換器 V2.1</h1>
+                            <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">極速轉換器 V2.2</h1>
                             <p className="text-xs text-slate-500 mt-1">Smart Proxy Routing • High Speed</p>
                         </div>
 
@@ -279,6 +326,7 @@
                                 </button>
                             </div>
 
+                            {/* Status Area */}
                             {status === 'working' && (
                                 <div className="space-y-3 py-2 animate-in fade-in slide-in-from-bottom-1">
                                     {videoInfo && (
@@ -294,19 +342,33 @@
                                     <div className="relative pt-1">
                                         <div className="flex mb-2 items-center justify-between">
                                             <div className="text-xs font-semibold inline-block text-indigo-300">
-                                                {msg}
+                                                {Math.round(progress)}%
                                             </div>
                                         </div>
-                                        <div className="overflow-hidden h-2 mb-4 text-xs flex rounded bg-slate-800">
+                                        <div className="overflow-hidden h-2 mb-2 text-xs flex rounded bg-slate-800">
                                             <div style={{ width: `${progress}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-indigo-500 to-purple-500 progress-bar"></div>
                                         </div>
+                                    </div>
+
+                                    {/* Real-time Log Console */}
+                                    <div className="log-area h-24 overflow-y-auto bg-black/40 rounded-lg p-2 text-[10px] font-mono border border-white/5">
+                                        {logs.map((log, i) => (
+                                            <div key={i} className={`mb-1 ${
+                                                log.type === 'error' ? 'text-red-400' : 
+                                                log.type === 'success' ? 'text-green-400' : 'text-slate-400'
+                                            }`}>
+                                                <span className="opacity-50">[{log.time}]</span> {log.text}
+                                            </div>
+                                        ))}
+                                        <div ref={el => el && el.scrollIntoView({ behavior: "smooth" })} />
                                     </div>
                                 </div>
                             )}
 
                             {status === 'error' && (
-                                <div className="bg-red-500/10 border border-red-500/20 text-red-300 text-xs p-3 rounded-lg text-center">
-                                    {msg}
+                                <div className="bg-red-500/10 border border-red-500/20 text-red-300 text-xs p-3 rounded-lg flex flex-col gap-1">
+                                    <div className="font-bold flex items-center gap-2"><Icon d={icons.loader} className="text-red-500"/> 任務失敗</div>
+                                    <div className="text-red-400/70">{logs[logs.length-1]?.text}</div>
                                 </div>
                             )}
 
@@ -335,7 +397,7 @@
                             )}
                             
                             {status === 'done' && (
-                                <button onClick={() => { setStatus('idle'); setUrl(''); setProgress(0); }} className="w-full text-xs text-slate-500 hover:text-white py-2">
+                                <button onClick={() => { setStatus('idle'); setUrl(''); setProgress(0); setLogs([]); }} className="w-full text-xs text-slate-500 hover:text-white py-2">
                                     轉換下一首
                                 </button>
                             )}
