@@ -3,537 +3,273 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Douyin to ALAC + Gemini AI</title>
+    <title>Douyin to ALAC (Speed Demon)</title>
     
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
-    <!-- Babel for JSX -->
+    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Tailwind CSS -->
+    <!-- Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- FFmpeg.wasm -->
+    <!-- FFmpeg -->
     <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
     
     <style>
-        /* Custom Animations */
-        @keyframes blob {
-            0% { transform: translate(0px, 0px) scale(1); }
-            33% { transform: translate(30px, -50px) scale(1.1); }
-            66% { transform: translate(-20px, 20px) scale(0.9); }
-            100% { transform: translate(0px, 0px) scale(1); }
-        }
-        .animate-blob {
-            animation: blob 7s infinite;
-        }
-        .animation-delay-2000 {
-            animation-delay: 2s;
-        }
-        .animation-delay-4000 {
-            animation-delay: 4s;
-        }
-        .glass-panel {
-            background: rgba(15, 23, 42, 0.75);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
+        @keyframes pulse-fast { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .animate-pulse-fast { animation: pulse-fast 1s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
     </style>
 </head>
-<body class="bg-slate-950 text-slate-100 antialiased selection:bg-indigo-500 selection:text-white">
+<body class="bg-black text-slate-100 font-sans">
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- FIXED: Define Icons locally to avoid CDN React component errors ---
-        const IconBase = ({ children, size = 24, className = "" }) => (
-            <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                width={size} 
-                height={size} 
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
-                strokeWidth="2" 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                className={className}
-            >
-                {children}
-            </svg>
-        );
-
-        const Icons = {
-            Music: (props) => <IconBase {...props}><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></IconBase>,
-            Download: (props) => <IconBase {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></IconBase>,
-            AlertCircle: (props) => <IconBase {...props}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></IconBase>,
-            CheckCircle: (props) => <IconBase {...props}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></IconBase>,
-            Loader2: (props) => <IconBase {...props}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></IconBase>,
-            Clipboard: (props) => <IconBase {...props}><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></IconBase>,
-            Shield: (props) => <IconBase {...props}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></IconBase>,
-            Cpu: (props) => <IconBase {...props}><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/><path d="M20 9h3"/><path d="M20 14h3"/><path d="M1 9h3"/><path d="M1 14h3"/></IconBase>,
-            ExternalLink: (props) => <IconBase {...props}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></IconBase>,
-            Sparkles: (props) => <IconBase {...props}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3z"/></IconBase>,
-            Key: (props) => <IconBase {...props}><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></IconBase>,
-            FileAudio: (props) => <IconBase {...props}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M10 13v5"/><path d="M10 18l4-4"/></IconBase>,
-            Tag: (props) => <IconBase {...props}><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><circle cx="7" cy="7" r=".5"/></IconBase>
-        };
-
-        const { Download, Music, AlertCircle, CheckCircle, Loader2, Clipboard, Shield, Cpu, ExternalLink, Sparkles, Key, FileAudio, Tag } = Icons;
-
-        // --- Gemini API Helper ---
-        const callGeminiAI = async (apiKey, videoTitle, author) => {
-            if (!apiKey) throw new Error("請先輸入 Gemini API Key");
-
-            const prompt = `
-                Analyze this song metadata from Douyin/TikTok.
-                Title: "${videoTitle}"
-                Author: "${author}"
-                
-                Task:
-                1. Identify the likely music genre (e.g., Pop, Ballad, Rap, EDM).
-                2. Identify the mood (e.g., Sad, Energetic, Chill).
-                3. Create a clean, short description (max 30 words) in Traditional Chinese (Taiwan).
-                4. Suggest a clean filename (Author - Title format), removing hashtags or messy text.
-
-                Output strictly valid JSON format:
-                {
-                    "genre": "String",
-                    "mood": "String",
-                    "description": "String",
-                    "cleanFilename": "String"
-                }
-            `;
-
-            try {
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }]
-                    })
-                });
-
-                const data = await response.json();
-                if (data.error) throw new Error(data.error.message);
-                
-                const text = data.candidates[0].content.parts[0].text;
-                // Clean up markdown code blocks if present
-                const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
-                return JSON.parse(jsonStr);
-            } catch (error) {
-                console.error("Gemini Error:", error);
-                throw new Error("AI 分析失敗: " + error.message);
-            }
+        // Icons
+        const Icon = ({ d, size=24, className="" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} dangerouslySetInnerHTML={{__html:d}} />;
+        const icons = {
+            zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+            download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+            loader: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+            check: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>'
         };
 
         const DouyinConverter = () => {
-            const [inputUrl, setInputUrl] = useState('');
-            const [apiKey, setApiKey] = useState(''); // User's Gemini Key
-            const [showKeyInput, setShowKeyInput] = useState(false);
-            const [status, setStatus] = useState('idle'); 
+            const [url, setUrl] = useState('');
+            const [status, setStatus] = useState('idle');
+            const [msg, setMsg] = useState('');
             const [progress, setProgress] = useState(0);
-            const [message, setMessage] = useState('');
-            const [downloadLink, setDownloadLink] = useState(null);
-            const [fallbackVideo, setFallbackVideo] = useState(null);
             const [videoInfo, setVideoInfo] = useState(null);
-            const [aiData, setAiData] = useState(null); // Stores Gemini results
-            const [aiStatus, setAiStatus] = useState('idle'); // idle, loading, done, error
+            const [downloadLink, setDownloadLink] = useState(null);
+            
             const ffmpegRef = useRef(null);
+            const ffmpegReady = useRef(false);
 
-            // Load saved API Key
+            // 1. 極速優化：網頁開啟時立即預載入 FFmpeg
             useEffect(() => {
-                const savedKey = localStorage.getItem('gemini_api_key');
-                if (savedKey) setApiKey(savedKey);
-
-                // Load FFmpeg
-                const loadFFmpegScript = async () => {
-                    if (typeof window !== 'undefined' && !window.FFmpeg) {
-                        // Ensure script is loaded (it's in head, but wait for ready)
+                const initFFmpeg = async () => {
+                    if (window.FFmpeg && !ffmpegRef.current) {
+                        try {
+                            const { createFFmpeg } = window.FFmpeg;
+                            // 使用單線程 (core-st) 以確保最大兼容性
+                            const ffmpeg = createFFmpeg({ 
+                                log: false, 
+                                corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
+                                mainName: 'main'
+                            });
+                            ffmpegRef.current = ffmpeg;
+                            await ffmpeg.load();
+                            ffmpegReady.current = true;
+                            console.log("FFmpeg Engine Ready (Preloaded)");
+                        } catch (e) {
+                            console.error("FFmpeg Preload Error", e);
+                        }
                     }
                 };
-                loadFFmpegScript();
+                // 稍微延遲一下，讓 UI 先渲染出來再載入重型腳本
+                setTimeout(initFFmpeg, 500);
             }, []);
 
-            // Save Key
-            const handleSaveKey = (key) => {
-                setApiKey(key);
-                localStorage.setItem('gemini_api_key', key);
-                setShowKeyInput(false);
-            };
-
-            const handlePaste = async () => {
-                try {
-                    const text = await navigator.clipboard.readText();
-                    setInputUrl(text);
-                } catch (err) {
-                    setMessage('無法讀取剪貼簿，請手動貼上');
-                }
-            };
-
-            const reset = () => {
-                setStatus('idle');
-                setProgress(0);
-                setMessage('');
-                setDownloadLink(null);
-                setVideoInfo(null);
-                setFallbackVideo(null);
-                setAiData(null);
-                setAiStatus('idle');
-            };
-
-            const extractUrl = (text) => {
-                const match = text.match(/(https?:\/\/(?:v\.douyin\.com|www\.douyin\.com|douyin\.com|iesdouyin\.com)[^\s]*)/);
-                return match ? match[0] : null;
-            };
-
-            // Proxy helper
-            const fetchWithProxy = async (targetUrl) => {
+            // 2. 極速優化：並行競速下載 (Race)
+            const downloadWithRace = async (videoUrl) => {
+                // 強制轉 HTTPS
+                const secureUrl = videoUrl.replace('http:', 'https:');
+                
+                // 定義多個下載通道
                 const proxies = [
-                    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-                    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-                ];
-                for (const p of proxies) {
-                    try {
-                        const res = await fetch(p(targetUrl));
-                        if (res.ok) return await res.json();
-                    } catch (e) { continue; }
-                }
-                throw new Error('API 請求受阻');
-            };
-
-            // Download binary helper
-            const downloadVideoBuffer = async (videoUrl) => {
-                let secureUrl = videoUrl.startsWith('http:') ? videoUrl.replace('http:', 'https:') : videoUrl;
-                const downloadProxies = [
-                    { name: 'CodeTabs', fn: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
-                    { name: 'CorsProxy', fn: (u) => `https://corsproxy.io/?${encodeURIComponent(u)}` },
-                    { name: 'AllOrigins', fn: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}` }
+                    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`, // 通常最快
+                    u => `https://corsproxy.io/?${encodeURIComponent(u)}`, // 穩定備用
+                    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}` // 慢但可用
                 ];
 
-                for (const proxy of downloadProxies) {
-                    try {
-                        setMessage(`正在下載影片數據 (${proxy.name})...`);
-                        const res = await fetch(proxy.fn(secureUrl));
-                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                        const blob = await res.blob();
-                        if (blob.size < 2000) throw new Error('檔案過小');
-                        return await blob.arrayBuffer();
-                    } catch (e) { console.warn(`${proxy.name} failed:`, e); }
-                }
-                throw new Error('下載失敗，代理線路忙碌中');
-            };
-
-            // AI Analysis Handler
-            const handleAnalyzeAI = async () => {
-                if (!videoInfo) return;
-                setAiStatus('loading');
-                try {
-                    const result = await callGeminiAI(apiKey, videoInfo.title, videoInfo.author);
-                    setAiData(result);
-                    setAiStatus('done');
-                } catch (err) {
-                    setAiStatus('error');
-                    alert(err.message);
-                }
-            };
-
-            const processDouyin = async () => {
-                const cleanUrl = extractUrl(inputUrl);
-                if (!cleanUrl) {
-                    setMessage('錯誤：找不到有效的抖音連結');
-                    setStatus('error');
-                    return;
-                }
-
-                setStatus('analyzing');
-                setProgress(10);
-                setFallbackVideo(null);
-                setAiData(null); // Reset AI data on new process
-
-                try {
-                    // 1. API Analysis
-                    setMessage('正在解析連結...');
-                    const apiProviders = [
-                        {
-                            url: (u) => `https://api.pearktrue.cn/api/video/douyin/?url=${encodeURIComponent(u)}`,
-                            parse: (d) => ({ playUrl: d.data.url, title: d.data.title, cover: d.data.cover, author: d.data.author })
-                        },
-                        {
-                            url: (u) => `https://api.kuaishouapi.com/douyin/index?url=${encodeURIComponent(u)}`,
-                            parse: (d) => ({ playUrl: d.data.url || d.data.play, title: d.data.desc || '抖音影片', cover: d.data.cover, author: d.data.author })
-                        }
-                    ];
-
-                    let vData = null;
-                    for (const provider of apiProviders) {
+                // 建立一組 Promise，同時發出請求
+                const requests = proxies.map(proxyFn => 
+                    new Promise(async (resolve, reject) => {
                         try {
-                            const data = await fetchWithProxy(provider.url(cleanUrl));
-                            if (data.code !== 200) continue;
-                            const parsed = provider.parse(data);
-                            if (parsed.playUrl) { vData = parsed; break; }
-                        } catch (e) {}
-                    }
+                            const res = await fetch(proxyFn(secureUrl));
+                            if (!res.ok) throw new Error('Network response was not ok');
+                            const blob = await res.blob();
+                            if (blob.size < 2000) throw new Error('File too small');
+                            resolve(blob);
+                        } catch (e) {
+                            reject(e);
+                        }
+                    })
+                );
 
-                    if (!vData) throw new Error('無法解析影片資訊');
-                    setVideoInfo(vData);
-                    setFallbackVideo(vData.playUrl);
+                // Promise.any 會等待「第一個成功」的結果，忽略失敗的 (直到全部失敗)
+                try {
+                    setMsg('多線路競速下載中...');
+                    const winnerBlob = await Promise.any(requests);
+                    return await winnerBlob.arrayBuffer();
+                } catch (err) {
+                    throw new Error("所有下載線路皆失敗，請稍後再試");
+                }
+            };
 
-                    // 2. Download
-                    setStatus('downloading');
-                    setProgress(30);
-                    const videoBuffer = await downloadVideoBuffer(vData.playUrl);
+            const process = async () => {
+                const linkMatch = url.match(/(https?:\/\/[^\s]+)/);
+                if (!linkMatch) return setMsg('無效連結');
+                const cleanUrl = linkMatch[0];
 
-                    // 3. Convert
-                    setStatus('converting');
-                    setMessage('正在轉碼為 ALAC (單核兼容模式)...');
-                    setProgress(50);
+                setStatus('working');
+                setProgress(10);
+                setDownloadLink(null);
 
-                    if (!window.FFmpeg) throw new Error('FFmpeg 未載入');
-                    if (!ffmpegRef.current) {
-                        const { createFFmpeg } = window.FFmpeg;
-                        ffmpegRef.current = createFFmpeg({
-                            log: false,
-                            corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
-                            mainName: 'main'
-                        });
-                        await ffmpegRef.current.load();
+                try {
+                    // Step A: 解析 API (也是用 Race 機制加速)
+                    setMsg('解析影片資訊...');
+                    const api1 = fetch(`https://api.pearktrue.cn/api/video/douyin/?url=${encodeURIComponent(cleanUrl)}`).then(r=>r.json()).then(d=>d.code===200?d.data:Promise.reject());
+                    const api2 = fetch(`https://api.kuaishouapi.com/douyin/index?url=${encodeURIComponent(cleanUrl)}`).then(r=>r.json()).then(d=>d.code===200?{url:d.data.url||d.data.play, title:d.data.desc, cover:d.data.cover}:Promise.reject());
+                    
+                    const videoData = await Promise.any([api1, api2].map(p => p.catch(e => Promise.reject(e))));
+                    
+                    const playUrl = videoData.url || videoData.playUrl; // 兼容不同 API 格式
+                    if (!playUrl) throw new Error('解析失敗');
+
+                    setVideoInfo({
+                        title: videoData.title || 'Unknown Title',
+                        cover: videoData.cover,
+                        author: videoData.author || 'Douyin User'
+                    });
+
+                    // Step B: 極速下載
+                    setProgress(40);
+                    const buffer = await downloadWithRace(playUrl);
+
+                    // Step C: 轉換
+                    setProgress(70);
+                    setMsg('FFmpeg 轉碼中...');
+                    
+                    if (!ffmpegReady.current) {
+                        setMsg('正在喚醒轉換引擎...');
+                        // 如果還沒預載完，這裡再等一下
+                        if (!ffmpegRef.current) {
+                             const { createFFmpeg } = window.FFmpeg;
+                             ffmpegRef.current = createFFmpeg({ log: false, corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js', mainName: 'main' });
+                        }
+                        if (!ffmpegRef.current.isLoaded()) await ffmpegRef.current.load();
                     }
 
                     const ffmpeg = ffmpegRef.current;
-                    const inputName = 'input.mp4';
-                    const outputName = 'output.m4a';
+                    ffmpeg.FS('writeFile', 'in.mp4', new Uint8Array(buffer));
+                    
+                    // -vn: 去除視頻 (極快)
+                    // -c:a copy: 直接複製音軌 (如果是 AAC 則無需重編碼，這是最最最快的方法)
+                    // 但因為你要 ALAC (.m4a)，我們必須轉碼: -c:a alac
+                    await ffmpeg.run('-i', 'in.mp4', '-vn', '-c:a', 'alac', 'out.m4a');
 
-                    ffmpeg.FS('writeFile', inputName, new Uint8Array(videoBuffer));
-                    await ffmpeg.run('-i', inputName, '-vn', '-c:a', 'alac', outputName);
+                    const data = ffmpeg.FS('readFile', 'out.m4a');
+                    const blob = new Blob([data.buffer], { type: 'audio/mp4' });
+                    setDownloadLink(URL.createObjectURL(blob));
                     
-                    setProgress(90);
-                    const outputData = ffmpeg.FS('readFile', outputName);
-                    const outputBlob = new Blob([outputData.buffer], { type: 'audio/mp4' });
-                    setDownloadLink(URL.createObjectURL(outputBlob));
-                    
-                    setStatus('done');
-                    setMessage('轉換完成！');
                     setProgress(100);
+                    setStatus('done');
+                    setMsg('完成！');
 
                     // Cleanup
-                    try { ffmpeg.FS('unlink', inputName); ffmpeg.FS('unlink', outputName); } catch(e){}
+                    ffmpeg.FS('unlink', 'in.mp4');
+                    ffmpeg.FS('unlink', 'out.m4a');
 
-                } catch (err) {
-                    console.error(err);
+                } catch (e) {
+                    console.error(e);
                     setStatus('error');
-                    setMessage(err.message || '發生未知錯誤');
+                    setMsg('失敗: ' + (e.message || '未知錯誤'));
                 }
             };
 
-            // Lucide icons helper no longer needed as we use direct components, 
-            // but we use IconBase directly in Icons definition.
-            // The Icon component below is for dynamic usage if needed, but we can use components directly.
-            // Let's replace the usages of <Icon icon={Music} ... /> with <Music ... />
-            
-            const Icon = ({ icon: IconComponent, size = 24, className }) => {
-                 return <IconComponent size={size} className={className} />;
-            };
-
             return (
-                <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
-                    {/* Animated Background */}
-                    <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10">
-                        <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-500/20 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-blob"></div>
-                        <div className="absolute top-0 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-blob animation-delay-2000"></div>
-                        <div className="absolute -bottom-32 left-1/3 w-96 h-96 bg-pink-500/20 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-blob animation-delay-4000"></div>
+                <div className="min-h-screen flex items-center justify-center relative overflow-hidden p-4">
+                    {/* Background */}
+                    <div className="absolute inset-0 bg-slate-950">
+                        <div className="absolute top-[-20%] left-[-20%] w-[80vw] h-[80vw] bg-indigo-500/10 rounded-full blur-[100px] animate-blob"></div>
+                        <div className="absolute bottom-[-20%] right-[-20%] w-[80vw] h-[80vw] bg-purple-500/10 rounded-full blur-[100px] animate-blob animation-delay-2000"></div>
                     </div>
 
-                    <div className="max-w-md w-full glass-panel rounded-3xl shadow-2xl relative z-10 flex flex-col max-h-[90vh] overflow-y-auto custom-scrollbar">
-                        
-                        {/* Header */}
-                        <div className="p-6 text-center border-b border-white/10 sticky top-0 bg-slate-900/80 backdrop-blur-md z-20">
-                            <div className="inline-flex p-3 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/20 mb-3">
-                                <Icon icon={Music} className="text-white" />
+                    <div className="w-full max-w-md glass rounded-2xl p-6 shadow-2xl relative z-10 border-t border-white/10">
+                        <div className="text-center mb-6">
+                            <div className="w-12 h-12 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-xl mx-auto flex items-center justify-center shadow-lg shadow-indigo-500/30 mb-3">
+                                <Icon d={icons.zap} className="text-white" />
                             </div>
-                            <h1 className="text-xl font-bold text-white tracking-tight">Douyin to ALAC <span className="text-indigo-400">AI</span></h1>
-                            <div className="flex justify-center gap-2 mt-2">
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-400">V7 GitHub Edition</span>
+                            <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">極速轉換器</h1>
+                            <p className="text-xs text-slate-500 mt-1">Parallel Downloading • Preloaded Core</p>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="relative">
+                                <input 
+                                    value={url}
+                                    onChange={e => setUrl(e.target.value)}
+                                    placeholder="貼上抖音連結..."
+                                    className="w-full bg-black/50 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all outline-none text-white placeholder-slate-600"
+                                />
                                 <button 
-                                    onClick={() => setShowKeyInput(!showKeyInput)}
-                                    className={`text-[10px] px-2 py-0.5 rounded-full border flex items-center gap-1 transition-colors ${apiKey ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'}`}
+                                    onClick={() => navigator.clipboard.readText().then(t => setUrl(t))}
+                                    className="absolute right-2 top-2 p-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded text-slate-300 transition-colors"
                                 >
-                                    <Icon icon={Key} size={10} />
-                                    {apiKey ? 'AI Ready' : 'Set AI Key'}
+                                    貼上
                                 </button>
                             </div>
 
-                            {/* API Key Input Collapsible */}
-                            {showKeyInput && (
-                                <div className="mt-3 animate-in slide-in-from-top-2">
-                                    <input 
-                                        type="password" 
-                                        placeholder="Paste Gemini API Key here..."
-                                        className="w-full bg-slate-950/80 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 mb-2"
-                                        onKeyDown={(e) => { if(e.key === 'Enter') handleSaveKey(e.target.value) }}
-                                    />
-                                    <p className="text-[10px] text-slate-500 text-left">
-                                        Key is stored locally in your browser. Get one at <a href="https://aistudio.google.com/" target="_blank" className="text-indigo-400 underline">Google AI Studio</a>.
-                                    </p>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Content */}
-                        <div className="p-6 space-y-6">
-                            
-                            {/* Input Area */}
-                            {(status === 'idle' || status === 'error') && (
-                                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                    <div className="relative group">
-                                        <textarea
-                                            value={inputUrl}
-                                            onChange={(e) => setInputUrl(e.target.value)}
-                                            placeholder="請貼上抖音分享連結 (v.douyin.com)..."
-                                            className="w-full h-28 bg-slate-950/50 border border-slate-700 rounded-2xl p-4 text-sm focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all resize-none outline-none placeholder:text-slate-600 group-hover:bg-slate-950/70"
-                                        />
-                                        <button
-                                            onClick={handlePaste}
-                                            className="absolute right-3 bottom-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-1 rounded transition-colors flex items-center gap-1"
-                                        >
-                                            <Icon icon={Clipboard} size={12} /> 貼上
-                                        </button>
-                                    </div>
-
-                                    <button
-                                        onClick={processDouyin}
-                                        disabled={!inputUrl}
-                                        className={`w-full py-3.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
-                                            inputUrl 
-                                                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-900/20 transform hover:scale-[1.02]' 
-                                                : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                                        }`}
-                                    >
-                                        {status === 'error' ? '重試' : '開始轉換'}
-                                    </button>
-
-                                    {status === 'error' && (
-                                        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 space-y-2">
-                                            <div className="flex gap-2 text-red-300 items-start">
-                                                <Icon icon={AlertCircle} size={16} className="mt-0.5 shrink-0" />
-                                                <p className="text-xs">{message}</p>
-                                            </div>
-                                            {fallbackVideo && (
-                                                <a href={fallbackVideo} target="_blank" className="flex items-center justify-center gap-2 w-full py-2 bg-slate-800/80 hover:bg-slate-700 text-white text-xs rounded-lg transition-colors mt-2">
-                                                    <Icon icon={ExternalLink} size={12} /> 下載原始檔 (救援模式)
-                                                </a>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Processing */}
-                            {(status === 'analyzing' || status === 'downloading' || status === 'converting') && (
-                                <div className="py-8 text-center space-y-4">
+                            {status === 'working' && (
+                                <div className="space-y-3 py-2">
                                     {videoInfo && (
-                                        <div className="bg-slate-900/50 p-3 rounded-xl flex items-center gap-3 text-left border border-slate-700/50 max-w-[90%] mx-auto">
-                                            <img src={videoInfo.cover} className="w-10 h-10 rounded bg-slate-800 object-cover" alt="" />
+                                        <div className="flex items-center gap-3 bg-slate-800/50 p-2 rounded-lg border border-slate-700/50">
+                                            <img src={videoInfo.cover} className="w-10 h-10 rounded bg-slate-700 object-cover"/>
                                             <div className="min-w-0">
-                                                <p className="text-sm text-slate-200 truncate">{videoInfo.title}</p>
-                                                <p className="text-xs text-slate-500">@{videoInfo.author}</p>
+                                                <p className="text-xs font-bold text-slate-200 truncate">{videoInfo.title}</p>
+                                                <p className="text-[10px] text-slate-500">@{videoInfo.author}</p>
                                             </div>
                                         </div>
                                     )}
-                                    <div className="space-y-2">
-                                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden max-w-[80%] mx-auto">
-                                            <div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${progress}%` }}></div>
-                                        </div>
-                                        <div className="flex items-center justify-center gap-2 text-xs text-slate-400 animate-pulse">
-                                            <Icon icon={Loader2} size={12} className="animate-spin" />
-                                            <span>{message}</span>
-                                        </div>
+                                    <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
+                                        <div className="h-full bg-indigo-500 transition-all duration-300" style={{width: `${progress}%`}}></div>
+                                    </div>
+                                    <div className="flex items-center justify-center gap-2 text-xs text-indigo-300 animate-pulse">
+                                        <Icon d={icons.loader} size={12} className="animate-spin"/> {msg}
                                     </div>
                                 </div>
                             )}
 
-                            {/* Success & AI Section */}
-                            {status === 'done' && (
-                                <div className="space-y-6 animate-in zoom-in-95 duration-300">
-                                    
-                                    {/* Download Main */}
-                                    <div className="text-center p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl">
-                                        <div className="w-12 h-12 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto text-emerald-400 mb-3">
-                                            <Icon icon={CheckCircle} size={24} />
-                                        </div>
-                                        <h2 className="text-lg font-bold text-white mb-4">轉換完成</h2>
-                                        
-                                        <a
-                                            href={downloadLink}
-                                            download={aiData ? `${aiData.cleanFilename}.m4a` : `${videoInfo?.title?.substring(0,20).replace(/[^\w\u4e00-\u9fa5]/g, '') || 'audio'}.m4a`}
-                                            className="block w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold shadow-lg shadow-emerald-900/20 transition-all flex items-center justify-center gap-2"
-                                        >
-                                            <Icon icon={Download} size={18} />
-                                            下載 .m4a 檔案
-                                        </a>
-                                    </div>
-
-                                    {/* AI Section */}
-                                    <div className="bg-indigo-900/20 border border-indigo-500/20 rounded-2xl p-4 space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <h3 className="text-sm font-semibold text-indigo-200 flex items-center gap-2">
-                                                <Icon icon={Sparkles} size={14} className="text-indigo-400" />
-                                                Gemini 智慧分析
-                                            </h3>
-                                            {!aiData && aiStatus !== 'loading' && (
-                                                <button 
-                                                    onClick={handleAnalyzeAI}
-                                                    disabled={!apiKey}
-                                                    className={`text-[10px] px-2 py-1 rounded-lg border transition-colors ${apiKey ? 'bg-indigo-600 hover:bg-indigo-500 border-transparent text-white' : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'}`}
-                                                >
-                                                    {apiKey ? '立即分析' : '需 API Key'}
-                                                </button>
-                                            )}
-                                        </div>
-
-                                        {aiStatus === 'loading' && (
-                                            <div className="text-center py-2">
-                                                <Icon icon={Loader2} size={16} className="animate-spin text-indigo-400 mx-auto" />
-                                                <p className="text-[10px] text-indigo-300/70 mt-1">AI 正在聆聽並分析...</p>
-                                            </div>
-                                        )}
-
-                                        {aiData && (
-                                            <div className="space-y-3 animate-in fade-in">
-                                                <div className="flex gap-2 flex-wrap">
-                                                    <span className="text-[10px] px-2 py-1 bg-indigo-500/20 text-indigo-300 rounded-md border border-indigo-500/30 flex items-center gap-1">
-                                                        <Icon icon={Music} size={10} /> {aiData.genre}
-                                                    </span>
-                                                    <span className="text-[10px] px-2 py-1 bg-purple-500/20 text-purple-300 rounded-md border border-purple-500/30 flex items-center gap-1">
-                                                        <Icon icon={Tag} size={10} /> {aiData.mood}
-                                                    </span>
-                                                </div>
-                                                <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
-                                                    <p className="text-[10px] text-slate-500 mb-1">AI 推薦檔名</p>
-                                                    <p className="text-xs text-white font-mono break-all">{aiData.cleanFilename}.m4a</p>
-                                                </div>
-                                                <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
-                                                    <p className="text-[10px] text-slate-500 mb-1">歌曲簡介</p>
-                                                    <p className="text-xs text-slate-300 leading-relaxed">{aiData.description}</p>
-                                                </div>
-                                                <p className="text-[10px] text-center text-indigo-400/50">
-                                                    *下載時將自動使用 AI 推薦檔名
-                                                </p>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <button 
-                                        onClick={reset}
-                                        className="w-full text-xs text-slate-500 hover:text-white transition-colors py-2"
-                                    >
-                                        轉換下一首
-                                    </button>
+                            {status === 'error' && (
+                                <div className="bg-red-500/10 border border-red-500/20 text-red-300 text-xs p-3 rounded-lg text-center">
+                                    {msg}
                                 </div>
+                            )}
+
+                            {status === 'done' && downloadLink && (
+                                <a 
+                                    href={downloadLink}
+                                    download={`${videoInfo?.title || 'audio'}.m4a`}
+                                    className="block w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-white font-bold rounded-xl text-center shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                                >
+                                    <Icon d={icons.download} /> 下載 ALAC 音訊
+                                </a>
+                            )}
+
+                            {status !== 'working' && status !== 'done' && (
+                                <button 
+                                    onClick={process}
+                                    disabled={!url}
+                                    className={`w-full py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
+                                        url 
+                                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:scale-[1.02] shadow-lg shadow-indigo-500/20 text-white' 
+                                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                                    }`}
+                                >
+                                    <Icon d={icons.zap} size={18} /> 開始極速轉換
+                                </button>
+                            )}
+                            
+                            {status === 'done' && (
+                                <button onClick={() => { setStatus('idle'); setUrl(''); }} className="w-full text-xs text-slate-500 hover:text-white py-2">
+                                    轉換下一首
+                                </button>
                             )}
                         </div>
                     </div>
