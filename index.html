@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Douyin to ALAC (Speed Demon V2)</title>
+    <title>Douyin to ALAC (Speed Demon V2.1)</title>
     
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -50,7 +50,7 @@
             
             const ffmpegRef = useRef(null);
             const ffmpegReady = useRef(false);
-            const maxDownloadProgress = useRef(0); // Track highest progress to avoid jitter
+            const maxDownloadProgress = useRef(0);
 
             // 1. FFmpeg Preload
             useEffect(() => {
@@ -73,10 +73,33 @@
                 setTimeout(initFFmpeg, 500);
             }, []);
 
+            // Helper: Robust JSON Fetcher (Proxy + Timeout)
+            const fetchJsonSafe = async (targetUrl) => {
+                // Try direct first, then proxies
+                const strategies = [
+                    u => u, // Direct
+                    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+                    u => `https://corsproxy.io/?${encodeURIComponent(u)}`
+                ];
+
+                for (const strat of strategies) {
+                    try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+                        
+                        const res = await fetch(strat(targetUrl), { signal: controller.signal });
+                        clearTimeout(timeoutId);
+                        
+                        if (res.ok) return await res.json();
+                    } catch (e) { continue; }
+                }
+                throw new Error('Connect Fail');
+            };
+
             // 2. Download with Progress Stream
             const downloadWithRace = async (videoUrl) => {
                 const secureUrl = videoUrl.replace('http:', 'https:');
-                maxDownloadProgress.current = 0; // Reset tracker
+                maxDownloadProgress.current = 0;
 
                 const proxies = [
                     u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
@@ -104,13 +127,11 @@
                                 chunks.push(value);
                                 loaded += value.length;
 
-                                // Progress Calculation (Map download 0-100% to UI 30-80%)
                                 if (total) {
                                     const dlPercent = (loaded / total) * 100;
-                                    // Logic Lock: Only update if this proxy is faster than what we've shown
                                     if (dlPercent > maxDownloadProgress.current) {
                                         maxDownloadProgress.current = dlPercent;
-                                        // Update UI: Download phase is roughly 30% to 80% of total process
+                                        // Map download 0-100 to UI 30-80
                                         const uiProgress = 30 + (dlPercent * 0.5); 
                                         setProgress(uiProgress);
                                         setMsg(`競速下載中... ${Math.round(dlPercent)}%`);
@@ -118,7 +139,6 @@
                                 }
                             }
 
-                            // Combine chunks
                             const buffer = new Uint8Array(loaded);
                             let position = 0;
                             for(let chunk of chunks) {
@@ -149,14 +169,33 @@
                 setDownloadLink(null);
 
                 try {
-                    // Step A: API Parsing
-                    setMsg('解析影片資訊...');
-                    const api1 = fetch(`https://api.pearktrue.cn/api/video/douyin/?url=${encodeURIComponent(cleanUrl)}`).then(r=>r.json()).then(d=>d.code===200?d.data:Promise.reject());
-                    const api2 = fetch(`https://api.kuaishouapi.com/douyin/index?url=${encodeURIComponent(cleanUrl)}`).then(r=>r.json()).then(d=>d.code===200?{url:d.data.url||d.data.play, title:d.data.desc, cover:d.data.cover}:Promise.reject());
+                    // Step A: API Parsing (Multi-source Race)
+                    setMsg('解析影片資訊 (智慧線路)...');
                     
-                    const videoData = await Promise.any([api1, api2].map(p => p.catch(e => Promise.reject(e))));
-                    const playUrl = videoData.url || videoData.playUrl;
-                    if (!playUrl) throw new Error('解析失敗');
+                    const providers = [
+                        // Source 1: Peark
+                        async () => {
+                            const d = await fetchJsonSafe(`https://api.pearktrue.cn/api/video/douyin/?url=${encodeURIComponent(cleanUrl)}`);
+                            if(d.code !== 200) throw new Error('Peark Fail');
+                            return { url: d.data.url, title: d.data.title, cover: d.data.cover, author: d.data.author };
+                        },
+                        // Source 2: Kuaishou
+                        async () => {
+                            const d = await fetchJsonSafe(`https://api.kuaishouapi.com/douyin/index?url=${encodeURIComponent(cleanUrl)}`);
+                            if(d.code !== 200) throw new Error('Kuaishou Fail');
+                            return { url: d.data.url||d.data.play, title: d.data.desc, cover: d.data.cover, author: d.data.author };
+                        },
+                        // Source 3: TenAPI
+                        async () => {
+                            const d = await fetchJsonSafe(`https://tenapi.cn/v2/video?url=${encodeURIComponent(cleanUrl)}`);
+                            if(d.code !== 200) throw new Error('TenAPI Fail');
+                            return { url: d.data.url, title: d.data.title, cover: d.data.cover, author: d.data.author };
+                        }
+                    ];
+
+                    const videoData = await Promise.any(providers.map(p => p()));
+                    const playUrl = videoData.url;
+                    if (!playUrl) throw new Error('解析失敗: 無法取得影片連結');
 
                     setVideoInfo({
                         title: videoData.title || 'Unknown Title',
@@ -166,7 +205,7 @@
                     
                     setProgress(30);
 
-                    // Step B: Download with Progress
+                    // Step B: Download
                     const buffer = await downloadWithRace(playUrl);
 
                     // Step C: Convert
@@ -195,13 +234,15 @@
                     setStatus('done');
                     setMsg('完成！');
 
-                    ffmpeg.FS('unlink', 'in.mp4');
-                    ffmpeg.FS('unlink', 'out.m4a');
+                    try {
+                        ffmpeg.FS('unlink', 'in.mp4');
+                        ffmpeg.FS('unlink', 'out.m4a');
+                    } catch(e) {}
 
                 } catch (e) {
                     console.error(e);
                     setStatus('error');
-                    setMsg('失敗: ' + (e.message || '未知錯誤'));
+                    setMsg('失敗: ' + (e.message || '請確認連結有效或稍後再試'));
                 }
             };
 
@@ -218,8 +259,8 @@
                             <div className="w-12 h-12 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-xl mx-auto flex items-center justify-center shadow-lg shadow-indigo-500/30 mb-3">
                                 <Icon d={icons.zap} className="text-white" />
                             </div>
-                            <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">極速轉換器 V2</h1>
-                            <p className="text-xs text-slate-500 mt-1">Real-time Progress • Parallel Stream</p>
+                            <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">極速轉換器 V2.1</h1>
+                            <p className="text-xs text-slate-500 mt-1">Smart Proxy Routing • High Speed</p>
                         </div>
 
                         <div className="space-y-4">
@@ -272,7 +313,7 @@
                             {status === 'done' && downloadLink && (
                                 <a 
                                     href={downloadLink}
-                                    download={`${videoInfo?.title ? videoInfo.title.substring(0,20) : 'audio'}.m4a`}
+                                    download={`${videoInfo?.title ? videoInfo.title.substring(0,20).replace(/[^\w\u4e00-\u9fa5]/g, '') : 'audio'}.m4a`}
                                     className="block w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-white font-bold rounded-xl text-center shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 animate-bounce-short"
                                 >
                                     <Icon d={icons.download} /> 下載 ALAC 音訊
