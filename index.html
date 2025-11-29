@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Douyin to ALAC (Cloud)</title>
+    <title>Douyin to ALAC (Dual Mode)</title>
     <style>
-        body { background-color: #0a0a0a; color: #e5e5e5; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        body { background-color: #0a0a0a; color: #e5e5e5; font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
         .container { background: rgba(255,255,255,0.03); padding: 2.5rem; border-radius: 24px; border: 1px solid rgba(255,255,255,0.08); width: 100%; max-width: 480px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); backdrop-filter: blur(10px); }
         h1 { font-weight: 300; margin-bottom: 0.5rem; } h1 span { font-weight: 700; color: #fff; }
         .subtitle { font-size: 0.8rem; color: #666; margin-bottom: 2rem; font-family: monospace; }
@@ -13,8 +13,16 @@
         input { width: 100%; padding: 16px; background: #151515; border: 1px solid #333; color: #fff; border-radius: 14px; box-sizing: border-box; transition: 0.3s; margin-bottom: 10px; font-size: 1rem; }
         input:focus { border-color: #666; outline: none; background: #1a1a1a; }
         
-        /* 專門給後端網址的輸入框樣式 */
-        .server-input { font-size: 0.8rem; padding: 10px; border-style: dashed; color: #4ade80; background: #002200; }
+        /* 模式切換按鈕樣式 */
+        .server-switch { display: flex; gap: 10px; margin-bottom: 15px; background: #151515; padding: 5px; border-radius: 12px; border: 1px solid #333; }
+        .server-switch label { flex: 1; text-align: center; padding: 10px; cursor: pointer; border-radius: 8px; font-size: 0.85rem; transition: 0.3s; color: #666; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .server-switch input { display: none; }
+        .server-switch input:checked + span { background: #333; color: #fff; font-weight: bold; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .server-switch span { width: 100%; padding: 5px; }
+
+        /* 雲端網址輸入框 (預設隱藏) */
+        .server-input { font-size: 0.8rem; padding: 12px; border: 1px dashed #4ade80; color: #4ade80; background: rgba(74, 222, 128, 0.05); display: none; margin-bottom: 15px; }
+        .server-input::placeholder { color: rgba(74, 222, 128, 0.4); }
         
         button { width: 100%; padding: 16px; margin-top: 1rem; background: #fff; color: #000; border: none; border-radius: 14px; font-weight: 700; font-size: 1rem; cursor: pointer; }
         button:disabled { background: #333; color: #666; }
@@ -28,11 +36,23 @@
 <body>
     <div class="container">
         <h1>Douyin <span>ALAC</span></h1>
-        <p class="subtitle">REMOTE FRONTEND INTERFACE</p>
+        <p class="subtitle">UNIVERSAL FRONTEND INTERFACE</p>
         
         <div id="inputSection">
-            <!-- 這裡設定你的 Python 後端網址 -->
-            <input type="text" id="serverUrl" class="server-input" placeholder="後端網址 (例: https://xxxx.ngrok-free.app)" value="http://127.0.0.1:5000">
+            <!-- 模式選擇器 -->
+            <div class="server-switch">
+                <label>
+                    <input type="radio" name="mode" value="local" checked onchange="switchMode('local')">
+                    <span>🏠 本地 (127.0.0.1)</span>
+                </label>
+                <label>
+                    <input type="radio" name="mode" value="cloud" onchange="switchMode('cloud')">
+                    <span>☁️ 雲端 / Ngrok</span>
+                </label>
+            </div>
+
+            <!-- 雲端網址輸入框 (只有切換到雲端時才會顯示) -->
+            <input type="text" id="serverUrl" class="server-input" placeholder="請輸入後端網址 (例: https://xxx.onrender.com)">
             
             <input type="text" id="urlInput" placeholder="貼上抖音連結..." autocomplete="off">
             <button onclick="startDownload()" id="submitBtn">下載並轉換</button>
@@ -46,17 +66,48 @@
 
     <script>
         let pollInterval;
+        const LOCAL_URL = 'http://127.0.0.1:5000';
         
-        // 嘗試從 LocalStorage 讀取上次存的後端網址
-        const savedServer = localStorage.getItem('douyin_server_url');
-        if(savedServer) document.getElementById('serverUrl').value = savedServer;
+        // 讀取儲存的設定
+        const savedCloudUrl = localStorage.getItem('douyin_cloud_url') || '';
+        const savedMode = localStorage.getItem('douyin_mode') || 'local';
+        
+        // 初始化介面狀態
+        document.getElementById('serverUrl').value = savedCloudUrl;
+        if (savedMode === 'cloud') {
+            document.querySelector('input[value="cloud"]').checked = true;
+            switchMode('cloud');
+        } else {
+            switchMode('local');
+        }
+
+        function switchMode(mode) {
+            const input = document.getElementById('serverUrl');
+            localStorage.setItem('douyin_mode', mode);
+            
+            if (mode === 'local') {
+                input.style.display = 'none';
+                input.value = savedCloudUrl; // 暫存雲端網址以免切換時遺失
+            } else {
+                input.style.display = 'block';
+                input.value = localStorage.getItem('douyin_cloud_url') || '';
+                input.focus(); // 自動聚焦方便輸入
+            }
+        }
 
         async function startDownload() {
-            let serverUrl = document.getElementById('serverUrl').value.replace(/\/$/, ""); // 去掉結尾斜線
-            if(!serverUrl) return alert("請輸入後端伺服器網址");
-            
-            // 儲存網址
-            localStorage.setItem('douyin_server_url', serverUrl);
+            const mode = document.querySelector('input[name="mode"]:checked').value;
+            let serverUrl;
+
+            // 根據模式決定後端網址
+            if (mode === 'local') {
+                serverUrl = LOCAL_URL;
+            } else {
+                serverUrl = document.getElementById('serverUrl').value.replace(/\/$/, ""); // 去掉結尾斜線
+                if(!serverUrl) return alert("請輸入雲端伺服器網址");
+                // 儲存雲端網址
+                localStorage.setItem('douyin_cloud_url', serverUrl);
+            }
 
             const url = document.getElementById('urlInput').value;
             if(!url) return alert("請輸入抖音網址");
@@ -65,21 +116,21 @@
             document.getElementById('progressSection').style.display = 'block';
             
             try {
-                // 呼叫你的 Python 後端
+                // 呼叫後端 API
                 const res = await fetch(`${serverUrl}/api/start`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({url})
                 });
                 
-                if(!res.ok) throw new Error("無法連線到後端，請檢查網址或 CORS 設定");
+                if(!res.ok) throw new Error("無法連線到後端，請檢查網址、CORS 設定或確認伺服器已啟動");
                 
                 const data = await res.json();
                 if(data.job_id) pollProgress(serverUrl, data.job_id);
                 else throw new Error("任務建立失敗");
                 
             } catch(e) {
-                alert("錯誤: " + e.message);
+                alert("錯誤: " + e.message + "\n(若是本地模式，請確認後端黑視窗已開啟)");
                 resetUI();
             }
         }
