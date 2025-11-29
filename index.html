@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Douyin to ALAC (Cloud)</title>
+    <style>
+        body { background-color: #0a0a0a; color: #e5e5e5; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .container { background: rgba(255,255,255,0.03); padding: 2.5rem; border-radius: 24px; border: 1px solid rgba(255,255,255,0.08); width: 100%; max-width: 480px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); backdrop-filter: blur(10px); }
+        h1 { font-weight: 300; margin-bottom: 0.5rem; } h1 span { font-weight: 700; color: #fff; }
+        .subtitle { font-size: 0.8rem; color: #666; margin-bottom: 2rem; font-family: monospace; }
+        
+        input { width: 100%; padding: 16px; background: #151515; border: 1px solid #333; color: #fff; border-radius: 14px; box-sizing: border-box; transition: 0.3s; margin-bottom: 10px; font-size: 1rem; }
+        input:focus { border-color: #666; outline: none; background: #1a1a1a; }
+        
+        /* 專門給後端網址的輸入框樣式 */
+        .server-input { font-size: 0.8rem; padding: 10px; border-style: dashed; color: #4ade80; background: #002200; }
+        
+        button { width: 100%; padding: 16px; margin-top: 1rem; background: #fff; color: #000; border: none; border-radius: 14px; font-weight: 700; font-size: 1rem; cursor: pointer; }
+        button:disabled { background: #333; color: #666; }
+        
+        .progress-container { margin-top: 2rem; display: none; }
+        .progress-bar-bg { width: 100%; height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; background: #4ade80; width: 0%; transition: width 0.3s ease; }
+        .progress-text { margin-top: 10px; font-size: 0.85rem; color: #888; display: flex; justify-content: space-between; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Douyin <span>ALAC</span></h1>
+        <p class="subtitle">REMOTE FRONTEND INTERFACE</p>
+        
+        <div id="inputSection">
+            <!-- 這裡設定你的 Python 後端網址 -->
+            <input type="text" id="serverUrl" class="server-input" placeholder="後端網址 (例: https://xxxx.ngrok-free.app)" value="http://127.0.0.1:5000">
+            
+            <input type="text" id="urlInput" placeholder="貼上抖音連結..." autocomplete="off">
+            <button onclick="startDownload()" id="submitBtn">下載並轉換</button>
+        </div>
+
+        <div class="progress-container" id="progressSection">
+            <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressBar"></div></div>
+            <div class="progress-text"><span id="progressMsg">連線中...</span><span id="progressPercent">0%</span></div>
+        </div>
+    </div>
+
+    <script>
+        let pollInterval;
+        
+        // 嘗試從 LocalStorage 讀取上次存的後端網址
+        const savedServer = localStorage.getItem('douyin_server_url');
+        if(savedServer) document.getElementById('serverUrl').value = savedServer;
+
+        async function startDownload() {
+            let serverUrl = document.getElementById('serverUrl').value.replace(/\/$/, ""); // 去掉結尾斜線
+            if(!serverUrl) return alert("請輸入後端伺服器網址");
+            
+            // 儲存網址
+            localStorage.setItem('douyin_server_url', serverUrl);
+
+            const url = document.getElementById('urlInput').value;
+            if(!url) return alert("請輸入抖音網址");
+
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('progressSection').style.display = 'block';
+            
+            try {
+                // 呼叫你的 Python 後端
+                const res = await fetch(`${serverUrl}/api/start`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({url})
+                });
+                
+                if(!res.ok) throw new Error("無法連線到後端，請檢查網址或 CORS 設定");
+                
+                const data = await res.json();
+                if(data.job_id) pollProgress(serverUrl, data.job_id);
+                else throw new Error("任務建立失敗");
+                
+            } catch(e) {
+                alert("錯誤: " + e.message);
+                resetUI();
+            }
+        }
+
+        function pollProgress(serverUrl, jobId) {
+            pollInterval = setInterval(async () => {
+                try {
+                    const res = await fetch(`${serverUrl}/api/progress/${jobId}`);
+                    const data = await res.json();
+                    
+                    document.getElementById('progressBar').style.width = data.progress + '%';
+                    document.getElementById('progressMsg').innerText = data.msg;
+                    document.getElementById('progressPercent').innerText = data.progress + '%';
+                    
+                    if (data.status === 'completed') {
+                        clearInterval(pollInterval);
+                        document.getElementById('progressBar').style.background = '#4ade80';
+                        document.getElementById('progressMsg').innerText = "下載開始！";
+                        // 下載檔案
+                        window.location.href = `${serverUrl}/api/get_file/${jobId}`;
+                        setTimeout(resetUI, 3000);
+                    } else if (data.status === 'failed') {
+                        clearInterval(pollInterval);
+                        alert("失敗: " + data.error);
+                        resetUI();
+                    }
+                } catch(e) { console.error(e); }
+            }, 1000);
+        }
+
+        function resetUI() {
+            document.getElementById('submitBtn').disabled = false;
+            setTimeout(() => {
+                document.getElementById('progressSection').style.display = 'none';
+                document.getElementById('progressBar').style.width = '0%';
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
